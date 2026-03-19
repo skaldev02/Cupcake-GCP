@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>K6 Load Tester</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="logo-bolt"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      <span class="header-title">K6 Load Tester</span>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="status-dot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+  </header>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- LEFT: CONFIG -->
+    <aside class="panel config-panel">
+      <h2>Configuration</h2>
+
+      <label class="field-label" for="inputUrl">Target URL</label>
+      <input id="inputUrl" type="url" placeholder="https://example.com" spellcheck="false" autocomplete="off">
+
+      <div class="row-2">
+        <div>
+          <label class="field-label" for="inputVUs">Virtual Users</label>
+          <input id="inputVUs" type="number" value="100" min="1" max="50000">
+        </div>
+        <div>
+          <label class="field-label" for="inputDuration">Duration</label>
+          <select id="inputDuration">
+            <option value="30s">30 seconds</option>
+            <option value="1m">1 minute</option>
+            <option value="3m">3 minutes</option>
+            <option value="5m" selected>5 minutes</option>
+            <option value="10m">10 minutes</option>
+            <option value="15m">15 minutes</option>
+            <option value="30m">30 minutes</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button id="btnStart" class="btn btn-start">Start Test</button>
+        <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
+      </div>
+
+      <!-- STATS -->
+      <div class="stats" id="statsBlock">
+        <div class="stat"><span class="stat-val" id="sVUs">0</span><span class="stat-lbl">VUs</span></div>
+        <div class="stat"><span class="stat-val" id="sReqs">0</span><span class="stat-lbl">Requests</span></div>
+        <div class="stat"><span class="stat-val" id="sTime">0s</span><span class="stat-lbl">Elapsed</span></div>
+      </div>
+    </aside>
+
+    <!-- RIGHT: CONSOLE -->
+    <section class="panel console-panel">
+      <div class="console-top">
+        <h2>Console Output</h2>
+        <button id="btnClear" class="btn-icon" title="Clear console">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+      <div class="console" id="console">
+        <p class="console-empty">Console output will appear here when a test starts.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
