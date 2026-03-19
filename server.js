@@ -4,12 +4,18 @@ const { WebSocketServer } = require('ws');
 const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ noServer: true });
 
 const PORT = process.env.PORT || 3000;
+const AUTH_ENABLED = (process.env.AUTH_ENABLED || 'false').toLowerCase() === 'true';
+const AUTH_USERNAME = process.env.AUTH_USERNAME || '';
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD || '';
+const APP_ACCESS_TOKEN = process.env.APP_ACCESS_TOKEN || '';
 
 function findK6() {
   const wellKnown = process.platform === 'win32'
@@ -28,9 +34,6 @@ function findK6() {
 const K6_BIN = findK6();
 console.log(`k6 binary: ${K6_BIN}`);
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
-
 let activeTest = null;
 
 function broadcast(data) {
@@ -40,12 +43,87 @@ function broadcast(data) {
   }
 }
 
+function safeCompare(a, b) {
+  const aBuf = Buffer.from(String(a));
+  const bBuf = Buffer.from(String(b));
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+function parseBasicAuth(headerValue) {
+  if (!headerValue || !headerValue.startsWith('Basic ')) return null;
+  try {
+    const decoded = Buffer.from(headerValue.slice(6), 'base64').toString('utf8');
+    const splitIndex = decoded.indexOf(':');
+    if (splitIndex < 0) return null;
+    return {
+      username: decoded.slice(0, splitIndex),
+      password: decoded.slice(splitIndex + 1),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isAuthorized(headers) {
+  if (!AUTH_ENABLED) return true;
+
+  const authHeader = headers.authorization || '';
+
+  if (APP_ACCESS_TOKEN && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    if (token && safeCompare(token, APP_ACCESS_TOKEN)) return true;
+  }
+
+  if (AUTH_USERNAME && AUTH_PASSWORD) {
+    const basic = parseBasicAuth(authHeader);
+    if (basic &&
+      safeCompare(basic.username, AUTH_USERNAME) &&
+      safeCompare(basic.password, AUTH_PASSWORD)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function sendUnauthorizedHttp(res) {
+  res.set('WWW-Authenticate', 'Basic realm="k6-load-tester"');
+  res.status(401).json({
+    error: 'Unauthorized. Use username/password (Basic Auth) or Bearer token.',
+  });
+}
+
+app.use((req, res, next) => {
+  if (!isAuthorized(req.headers)) return sendUnauthorizedHttp(res);
+  next();
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
+
 wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'status',
     running: activeTest !== null,
     config: activeTest ? activeTest.config : null,
   }));
+});
+
+server.on('upgrade', (request, socket, head) => {
+  if (!isAuthorized(request.headers)) {
+    socket.write(
+      'HTTP/1.1 401 Unauthorized\r\n' +
+      'WWW-Authenticate: Basic realm="k6-load-tester"\r\n' +
+      'Connection: close\r\n\r\n'
+    );
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit('connection', ws, request);
+  });
 });
 
 app.get('/api/status', (_req, res) => {
@@ -68,7 +146,7 @@ app.post('/api/start', (req, res) => {
     '-e', `TOTAL_VUS=${vuCount}`,
     '-e', `TEST_DURATION=${dur}`,
     path.join(__dirname, 'test.js'),
-  ]);
+  ], { cwd: __dirname, env: { ...process.env } });
 
   activeTest = { config, process: k6, startedAt: Date.now() };
 
@@ -111,5 +189,12 @@ app.post('/api/stop', (_req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
+  if (AUTH_ENABLED) {
+    console.log('Authentication: ENABLED');
+    if (AUTH_USERNAME && AUTH_PASSWORD) console.log(' - Basic Auth username/password is active');
+    if (APP_ACCESS_TOKEN) console.log(' - Bearer token authentication is active');
+  } else {
+    console.log('Authentication: DISABLED');
+  }
   console.log(`K6 Load Tester running at http://localhost:${PORT}`);
 });
