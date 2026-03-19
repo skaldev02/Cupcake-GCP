@@ -47,8 +47,21 @@ sudo chown -R "$USER:$USER" "$APP"
 cd "$APP"
 npm install --omit=dev
 
+# Create .env for secure access if missing
+if [ ! -f ".env" ]; then
+  cat > .env <<'EOF'
+PORT=3000
+AUTH_ENABLED=true
+AUTH_USERNAME=admin
+AUTH_PASSWORD=change-me-now
+# Optional API token auth
+# APP_ACCESS_TOKEN=replace-with-random-token
+EOF
+  echo "  Created .env with default secure settings. Update AUTH_PASSWORD immediately."
+fi
+
 pm2 delete k6-load-tester 2>/dev/null || true
-pm2 start server.js --name k6-load-tester
+pm2 start server.js --name k6-load-tester --update-env
 pm2 save
 sudo env PATH="$PATH" pm2 startup systemd -u "$USER" --hp "$HOME" 2>/dev/null || true
 
@@ -60,4 +73,11 @@ echo ""
 echo "=============================="
 echo " DONE!  Open http://$IP:3000"
 echo "=============================="
+echo ""
+echo "Optional ngrok commands:"
+echo "  sudo snap install ngrok"
+echo "  ngrok config add-authtoken <YOUR_NGROK_TOKEN>"
+echo "  ngrok http 3000"
+echo ""
+echo "Use AUTH_USERNAME/AUTH_PASSWORD from $APP/.env for secure access."
 echo ""
