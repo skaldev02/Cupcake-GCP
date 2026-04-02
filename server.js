@@ -12,6 +12,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true });
 
 const PORT = process.env.PORT || 3000;
+const BIND_HOST = process.env.BIND_HOST || '0.0.0.0';
 const AUTH_ENABLED = (process.env.AUTH_ENABLED || 'false').toLowerCase() === 'true';
 const AUTH_USERNAME = process.env.AUTH_USERNAME || '';
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD || '';
@@ -241,7 +242,7 @@ app.post('/api/stop', requireApiAuth, (_req, res) => {
   res.json({ ok: true });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, BIND_HOST, () => {
   if (AUTH_ENABLED) {
     console.log('Authentication: ENABLED');
     if (AUTH_USERNAME && AUTH_PASSWORD) console.log(' - Basic Auth username/password is active');
@@ -249,5 +250,6 @@ server.listen(PORT, '127.0.0.1', () => {
   } else {
     console.log('Authentication: DISABLED');
   }
-  console.log(`K6 Load Tester running at http://localhost:${PORT}`);
+  const displayHost = BIND_HOST === '0.0.0.0' ? 'localhost' : BIND_HOST;
+  console.log(`K6 Load Tester running at http://${displayHost}:${PORT} (bind ${BIND_HOST})`);
 });
