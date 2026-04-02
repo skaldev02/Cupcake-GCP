@@ -14,6 +14,7 @@
     <div class="header-left">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="logo-bolt"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       <span class="header-title">K6 Load Tester</span>
+      <span class="header-sub">HTTP &amp; browser scenarios</span>
     </div>
     <div class="status-pill" id="statusPill">
       <span class="status-dot"></span>
@@ -21,12 +22,28 @@
     </div>
   </header>
 
+  <div id="authTokenBar" class="auth-token-bar hidden" aria-live="polite">
+    <div class="auth-token-inner">
+      <label class="auth-token-label" for="inputAccessToken">Access token</label>
+      <input id="inputAccessToken" type="text" autocomplete="off" spellcheck="false" placeholder="Paste APP_ACCESS_TOKEN from server .env">
+      <button type="button" id="btnSaveToken" class="btn btn-token">Save</button>
+    </div>
+    <p class="auth-token-note">Stored for this browser session only.</p>
+  </div>
+
   <!-- CONTENT -->
   <div class="content">
 
     <!-- LEFT: CONFIG -->
     <aside class="panel config-panel">
       <h2>Configuration</h2>
+
+      <span class="field-label field-label-first">Test type</span>
+      <div class="mode-toggle" role="group" aria-label="Test type">
+        <button type="button" id="modeHttp" class="mode-btn active" data-mode="http">HTTP load</button>
+        <button type="button" id="modeBrowser" class="mode-btn" data-mode="browser">Browser UI</button>
+      </div>
+      <p class="mode-hint" id="modeHint">GET requests to a base URL with staged ramp-up.</p>
 
       <label class="field-label" for="inputUrl">Target URL</label>
       <input id="inputUrl" type="url" placeholder="https://example.com" spellcheck="false" autocomplete="off">
@@ -40,6 +57,9 @@
           <label class="field-label" for="inputDuration">Duration</label>
           <select id="inputDuration">
             <option value="30s">30 seconds</option>
+            <option value="45s">45 seconds</option>
+            <option value="60s">60 seconds</option>
+            <option value="90s">90 seconds</option>
             <option value="1m">1 minute</option>
             <option value="3m">3 minutes</option>
             <option value="5m" selected>5 minutes</option>
@@ -58,7 +78,7 @@
       <!-- STATS -->
       <div class="stats" id="statsBlock">
         <div class="stat"><span class="stat-val" id="sVUs">0</span><span class="stat-lbl">VUs</span></div>
-        <div class="stat"><span class="stat-val" id="sReqs">0</span><span class="stat-lbl">Requests</span></div>
+        <div class="stat"><span class="stat-val" id="sReqs">0</span><span class="stat-lbl" id="sReqsLbl">Requests</span></div>
         <div class="stat"><span class="stat-val" id="sTime">0s</span><span class="stat-lbl">Elapsed</span></div>
       </div>
     </aside>

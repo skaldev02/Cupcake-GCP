@@ -65,38 +65,71 @@ function parseBasicAuth(headerValue) {
   }
 }
 
-function isAuthorized(headers) {
+function bearerOk(authHeader) {
+  if (!APP_ACCESS_TOKEN || !authHeader || !authHeader.startsWith('Bearer ')) return false;
+  const token = authHeader.slice(7).trim();
+  return Boolean(token && safeCompare(token, APP_ACCESS_TOKEN));
+}
+
+function basicOk(authHeader) {
+  if (!AUTH_USERNAME || !AUTH_PASSWORD) return false;
+  const basic = parseBasicAuth(authHeader || '');
+  return Boolean(basic &&
+    safeCompare(basic.username, AUTH_USERNAME) &&
+    safeCompare(basic.password, AUTH_PASSWORD));
+}
+
+/** Browser WebSockets cannot set Authorization; allow ?token= same as Bearer. */
+function queryTokenOk(urlPath, hostHeader) {
+  if (!APP_ACCESS_TOKEN || !urlPath) return false;
+  try {
+    const u = new URL(urlPath, `http://${hostHeader || 'localhost'}`);
+    const q = u.searchParams.get('token');
+    return Boolean(q && safeCompare(q, APP_ACCESS_TOKEN));
+  } catch {
+    return false;
+  }
+}
+
+function isAuthorizedHttp(headers) {
   if (!AUTH_ENABLED) return true;
-
   const authHeader = headers.authorization || '';
+  if (bearerOk(authHeader)) return true;
+  if (basicOk(authHeader)) return true;
+  return false;
+}
 
-  if (APP_ACCESS_TOKEN && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7).trim();
-    if (token && safeCompare(token, APP_ACCESS_TOKEN)) return true;
-  }
-
-  if (AUTH_USERNAME && AUTH_PASSWORD) {
-    const basic = parseBasicAuth(authHeader);
-    if (basic &&
-      safeCompare(basic.username, AUTH_USERNAME) &&
-      safeCompare(basic.password, AUTH_PASSWORD)) {
-      return true;
-    }
-  }
-
+function isAuthorizedWs(req) {
+  if (!AUTH_ENABLED) return true;
+  const authHeader = req.headers.authorization || '';
+  if (bearerOk(authHeader)) return true;
+  if (basicOk(authHeader)) return true;
+  if (queryTokenOk(req.url, req.headers.host)) return true;
   return false;
 }
 
 function sendUnauthorizedHttp(res) {
-  res.set('WWW-Authenticate', 'Basic realm="k6-load-tester"');
+  if (AUTH_USERNAME && AUTH_PASSWORD) {
+    res.set('WWW-Authenticate', 'Basic realm="k6-load-tester"');
+  }
   res.status(401).json({
-    error: 'Unauthorized. Use username/password (Basic Auth) or Bearer token.',
+    error: AUTH_USERNAME && AUTH_PASSWORD
+      ? 'Unauthorized. Use Basic credentials, or Bearer token if configured.'
+      : 'Unauthorized. Send Authorization: Bearer <token> (set APP_ACCESS_TOKEN on the server).',
   });
 }
 
-app.use((req, res, next) => {
-  if (!isAuthorized(req.headers)) return sendUnauthorizedHttp(res);
+function requireApiAuth(req, res, next) {
+  if (!isAuthorizedHttp(req.headers)) return sendUnauthorizedHttp(res);
   next();
+}
+
+app.get('/api/auth/config', (_req, res) => {
+  res.json({
+    authEnabled: AUTH_ENABLED,
+    bearer: Boolean(APP_ACCESS_TOKEN),
+    basic: Boolean(AUTH_USERNAME && AUTH_PASSWORD),
+  });
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -111,10 +144,13 @@ wss.on('connection', (ws) => {
 });
 
 server.on('upgrade', (request, socket, head) => {
-  if (!isAuthorized(request.headers)) {
+  if (!isAuthorizedWs(request)) {
+    const challenge = (AUTH_USERNAME && AUTH_PASSWORD)
+      ? 'WWW-Authenticate: Basic realm="k6-load-tester"\r\n'
+      : '';
     socket.write(
       'HTTP/1.1 401 Unauthorized\r\n' +
-      'WWW-Authenticate: Basic realm="k6-load-tester"\r\n' +
+      challenge +
       'Connection: close\r\n\r\n'
     );
     socket.destroy();
@@ -126,27 +162,44 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-app.get('/api/status', (_req, res) => {
+app.get('/api/status', requireApiAuth, (_req, res) => {
   res.json({ running: activeTest !== null });
 });
 
-app.post('/api/start', (req, res) => {
+app.post('/api/start', requireApiAuth, (req, res) => {
   if (activeTest) return res.status(409).json({ error: 'A test is already running.' });
 
-  const { url, vus, duration } = req.body;
+  const { url, vus, duration, mode } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required.' });
 
-  const vuCount = Math.max(1, parseInt(vus) || 100);
-  const dur = duration || '5m';
-  const config = { url, vus: vuCount, duration: dur };
+  const browserMode = mode === 'browser';
+  const vuCount = Math.max(1, parseInt(vus) || (browserMode ? 10 : 100));
+  const dur = duration || (browserMode ? '90s' : '5m');
+  const config = { url, vus: vuCount, duration: dur, mode: browserMode ? 'browser' : 'http' };
 
-  const k6 = spawn(K6_BIN, [
-    'run',
-    '-e', `BASE_URL=${url}`,
-    '-e', `TOTAL_VUS=${vuCount}`,
-    '-e', `TEST_DURATION=${dur}`,
-    path.join(__dirname, 'test.js'),
-  ], { cwd: __dirname, env: { ...process.env } });
+  const scriptFile = browserMode ? 'bolt-browser-test.js' : 'test.js';
+  const envForK6 = { ...process.env };
+  if (browserMode && envForK6.K6_BROWSER_HEADLESS === undefined) {
+    envForK6.K6_BROWSER_HEADLESS = 'true';
+  }
+
+  const k6Args = browserMode
+    ? [
+        'run',
+        '-e', `APP_URL=${url}`,
+        '-e', `BROWSER_VUS=${vuCount}`,
+        '-e', `BROWSER_DURATION=${dur}`,
+        path.join(__dirname, scriptFile),
+      ]
+    : [
+        'run',
+        '-e', `BASE_URL=${url}`,
+        '-e', `TOTAL_VUS=${vuCount}`,
+        '-e', `TEST_DURATION=${dur}`,
+        path.join(__dirname, scriptFile),
+      ];
+
+  const k6 = spawn(K6_BIN, k6Args, { cwd: __dirname, env: envForK6 });
 
   activeTest = { config, process: k6, startedAt: Date.now() };
 
@@ -174,7 +227,7 @@ app.post('/api/start', (req, res) => {
   res.json({ ok: true, config });
 });
 
-app.post('/api/stop', (_req, res) => {
+app.post('/api/stop', requireApiAuth, (_req, res) => {
   if (!activeTest) return res.status(409).json({ error: 'No test is running.' });
 
   const proc = activeTest.process;
@@ -188,7 +241,7 @@ app.post('/api/stop', (_req, res) => {
   res.json({ ok: true });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '127.0.0.1', () => {
   if (AUTH_ENABLED) {
     console.log('Authentication: ENABLED');
     if (AUTH_USERNAME && AUTH_PASSWORD) console.log(' - Basic Auth username/password is active');
