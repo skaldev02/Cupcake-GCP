@@ -1,6 +1,7 @@
 import { browser } from 'k6/browser';
 import { check, sleep } from 'k6';
 
+
 const APP_URL = __ENV.APP_URL || 'https://bolt-fifth-testing.netlify.app/';
 const BROWSER_VUS = parseInt(__ENV.BROWSER_VUS || '10', 10);
 const BROWSER_DURATION = __ENV.BROWSER_DURATION || '90s';
