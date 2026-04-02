@@ -1,5 +1,8 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const BASE_URL  = __ENV.BASE_URL  || 'http://localhost';
 const TOTAL_VUS = parseInt(__ENV.TOTAL_VUS || '100', 10);
@@ -70,4 +73,4 @@ export default function () {
   });
 
   sleep(1 + Math.random() * 2);
-}
+};
