@@ -125,11 +125,24 @@ function requireApiAuth(req, res, next) {
   next();
 }
 
+const CUSTOM_BROWSER_SCRIPT = (process.env.K6_CUSTOM_BROWSER_SCRIPT || '').trim();
+
+function safeCustomBrowserScriptPath() {
+  if (!CUSTOM_BROWSER_SCRIPT) return null;
+  const base = path.resolve(__dirname);
+  const resolved = path.resolve(__dirname, CUSTOM_BROWSER_SCRIPT);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) return null;
+  if (!resolved.endsWith('.js')) return null;
+  if (!fs.existsSync(resolved)) return null;
+  return resolved;
+}
+
 app.get('/api/auth/config', (_req, res) => {
   res.json({
     authEnabled: AUTH_ENABLED,
     bearer: Boolean(APP_ACCESS_TOKEN),
     basic: Boolean(AUTH_USERNAME && AUTH_PASSWORD),
+    customBrowserEnabled: Boolean(safeCustomBrowserScriptPath()),
   });
 });
 
@@ -170,15 +183,83 @@ app.get('/api/status', requireApiAuth, (_req, res) => {
 app.post('/api/start', requireApiAuth, (req, res) => {
   if (activeTest) return res.status(409).json({ error: 'A test is already running.' });
 
-  const { url, vus, duration, mode } = req.body;
+  const { url, vus, duration, mode, scenario } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required.' });
 
-  const browserMode = mode === 'browser';
-  const vuCount = Math.max(1, parseInt(vus) || (browserMode ? 10 : 100));
-  const dur = duration || (browserMode ? '90s' : '5m');
-  const config = { url, vus: vuCount, duration: dur, mode: browserMode ? 'browser' : 'http' };
+  let resolvedScenario = typeof scenario === 'string' ? scenario.trim().toLowerCase() : '';
+  if (!resolvedScenario) {
+    if (mode === 'browser') {
+      return res.status(400).json({
+        error:
+          'Missing JSON field "scenario". Browser runs must send scenario: "bolt", "weather", or "custom" (not inferred from mode alone).',
+      });
+    }
+    resolvedScenario = 'http';
+  }
+  const validScenarios = ['http', 'bolt', 'weather', 'custom'];
+  if (!validScenarios.includes(resolvedScenario)) {
+    return res.status(400).json({ error: `Invalid scenario. Use one of: ${validScenarios.join(', ')}.` });
+  }
 
-  const scriptFile = browserMode ? 'bolt-browser-test.js' : 'test.js';
+  const browserMode = resolvedScenario !== 'http';
+  const vuCount = Math.max(1, parseInt(vus) || (browserMode ? 10 : 100));
+
+  if (resolvedScenario === 'custom') {
+    const customPath = safeCustomBrowserScriptPath();
+    if (!customPath) {
+      return res.status(400).json({
+        error: 'Custom browser is not configured. Set K6_CUSTOM_BROWSER_SCRIPT to a .js file in this project directory on the server.',
+      });
+    }
+  }
+
+  // Enforce a minimum 90 s for browser scenarios so VUs can finish one iteration.
+  const rawDur = duration || (browserMode ? '90s' : '5m');
+  const dur = (() => {
+    if (!browserMode) return rawDur;
+    const m = rawDur.match(/^(\d+)(s|m|h)$/);
+    if (!m) return '90s';
+    const secs = m[2] === 'h' ? +m[1] * 3600 : m[2] === 'm' ? +m[1] * 60 : +m[1];
+    return secs < 90 ? '90s' : rawDur;
+  })();
+
+  const scriptByScenario = {
+    http: 'test.js',
+    bolt: 'bolt-browser-test.js',
+    weather: 'weather-browser-test.js',
+    custom: safeCustomBrowserScriptPath(),
+  };
+
+  const scriptFile =
+    resolvedScenario === 'custom'
+      ? scriptByScenario.custom
+      : path.join(__dirname, scriptByScenario[resolvedScenario]);
+
+  if (!scriptFile || !fs.existsSync(scriptFile)) {
+    const name =
+      resolvedScenario === 'custom'
+        ? 'K6_CUSTOM_BROWSER_SCRIPT'
+        : scriptByScenario[resolvedScenario];
+    return res.status(500).json({
+      error: `k6 script file not found on server (${name}). Deploy this repo or fix the path.`,
+    });
+  }
+
+  const scriptBasename = path.basename(scriptFile);
+
+  const config = {
+    url,
+    vus: vuCount,
+    duration: dur,
+    mode: browserMode ? 'browser' : 'http',
+    scenario: resolvedScenario,
+    script: scriptBasename,
+  };
+
+  console.log(
+    `[k6] scenario=${resolvedScenario} script=${scriptBasename} APP_URL=${browserMode ? url : '(n/a)'}`,
+  );
+
   const envForK6 = { ...process.env };
   if (browserMode && envForK6.K6_BROWSER_HEADLESS === undefined) {
     envForK6.K6_BROWSER_HEADLESS = 'true';
@@ -190,14 +271,14 @@ app.post('/api/start', requireApiAuth, (req, res) => {
         '-e', `APP_URL=${url}`,
         '-e', `BROWSER_VUS=${vuCount}`,
         '-e', `BROWSER_DURATION=${dur}`,
-        path.join(__dirname, scriptFile),
+        scriptFile,
       ]
     : [
         'run',
         '-e', `BASE_URL=${url}`,
         '-e', `TOTAL_VUS=${vuCount}`,
         '-e', `TEST_DURATION=${dur}`,
-        path.join(__dirname, scriptFile),
+        scriptFile,
       ];
 
   const k6 = spawn(K6_BIN, k6Args, { cwd: __dirname, env: envForK6 });
@@ -206,13 +287,23 @@ app.post('/api/start', requireApiAuth, (req, res) => {
 
   broadcast({ type: 'started', config });
 
-  const forwardOutput = (chunk, isStderr) => {
-    const text = chunk.toString();
-    broadcast({ type: 'log', text, ts: Date.now(), stderr: isStderr });
+  // k6 uses \r (no \n) to overwrite progress lines in a real terminal.
+  // The browser console cannot do that — it just appends, causing thousands of
+  // duplicate "running…" lines. Fix: take only the last frame after each \r,
+  // and skip the chunk entirely if nothing changed since the last broadcast.
+  let lastForwarded = '';
+  const forwardOutput = (chunk) => {
+    const raw = chunk.toString();
+    // Keep only the content after the last \r (the "current frame")
+    const text = raw.split('\r').filter((s) => s.trim()).pop();
+    if (!text || !text.trim()) return;
+    if (text === lastForwarded) return;   // deduplicate
+    lastForwarded = text;
+    broadcast({ type: 'log', text, ts: Date.now() });
   };
 
-  k6.stdout.on('data', (d) => forwardOutput(d, false));
-  k6.stderr.on('data', (d) => forwardOutput(d, true));
+  k6.stdout.on('data', (d) => forwardOutput(d));
+  k6.stderr.on('data', (d) => forwardOutput(d));
 
   k6.on('error', (err) => {
     broadcast({ type: 'error', message: `k6 failed to start: ${err.message}` });

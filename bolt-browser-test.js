@@ -90,3 +90,24 @@ export default async function () {
     await page.close();
   }
 }
+
+// k6 browser module has a known bug where the default summary generator
+// hangs for up to 120 s after browser tests. A custom export that returns
+// immediately is the recommended workaround.
+export function handleSummary(data) {
+  const checks  = data.metrics.checks;
+  const passes  = checks ? checks.values.passes : 0;
+  const fails   = checks ? checks.values.fails   : 0;
+  const iters   = data.metrics.iterations ? data.metrics.iterations.values.count : 0;
+  return {
+    stdout: [
+      '',
+      '── Browser Test Summary ──────────────────────',
+      `  Iterations  : ${iters}`,
+      `  Checks ✓    : ${passes}`,
+      `  Checks ✗    : ${fails}`,
+      '──────────────────────────────────────────────',
+      '',
+    ].join('\n'),
+  };
+}

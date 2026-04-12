@@ -1,39 +1,85 @@
-(function () {
+﻿(function () {
   const $ = (s) => document.getElementById(s);
 
   const BOLT_DEFAULT = 'https://bolt-fifth-testing.netlify.app/';
+  const WEATHER_DEFAULT = 'https://bolt-sixth-testing.netlify.app/';
+  const WEATHER_PRESETS = [
+    'https://bolt-sixth-testing.netlify.app/',
+    'https://weather-app-us-28149829298.us-central1.run.app',
+    'https://weather-app-ca-28149829298.northamerica-northeast2.run.app',
+  ];
   const TOKEN_KEY = 'k6_tester_token';
 
-  const ui = {
-    authBar:    $('authTokenBar'),
-    accessTok:  $('inputAccessToken'),
-    saveToken:  $('btnSaveToken'),
-    modeHttp:   $('modeHttp'),
-    modeBrowser:$('modeBrowser'),
-    modeHint:   $('modeHint'),
-    url:        $('inputUrl'),
-    vus:        $('inputVUs'),
-    dur:        $('inputDuration'),
-    start:      $('btnStart'),
-    stop:       $('btnStop'),
-    clear:      $('btnClear'),
-    pill:       $('statusPill'),
-    pillText:   $('statusText'),
-    con:        $('console'),
-    sVUs:       $('sVUs'),
-    sReqs:      $('sReqs'),
-    sReqsLbl:   $('sReqsLbl'),
-    sTime:      $('sTime'),
+  /** Must stay in sync with server.js scriptByScenario */
+  const K6_SCRIPT_LABEL = {
+    http: 'test.js',
+    bolt: 'bolt-browser-test.js',
+    weather: 'weather-browser-test.js',
+    custom: '(K6_CUSTOM_BROWSER_SCRIPT on server)',
   };
 
-  let testMode = 'http';
-  let running  = false;
+  const ui = {
+    authBar: $('authTokenBar'),
+    accessTok: $('inputAccessToken'),
+    saveToken: $('btnSaveToken'),
+    modeCustomWrap: $('modeCustomWrap'),
+    scriptName: $('scriptName'),
+    urlPresets: $('urlPresets'),
+    url: $('inputUrl'),
+    vus: $('inputVUs'),
+    dur: $('inputDuration'),
+    start: $('btnStart'),
+    stop: $('btnStop'),
+    clear: $('btnClear'),
+    pill: $('statusPill'),
+    pillText: $('statusText'),
+    con: $('console'),
+    sVUs: $('sVUs'),
+    sReqs: $('sReqs'),
+    sReqsLbl: $('sReqsLbl'),
+    sTime: $('sTime'),
+  };
+
+  let scenario = 'http';
+  let customBrowserEnabled = false;
+  let running = false;
   let serverAuth = { authEnabled: false, bearer: false, basic: false };
-  let started  = null;
-  let ticker   = null;
-  let reqs     = 0;
-  let lastVUs  = 0;
+  let started = null;
+  let ticker = null;
+  let reqs = 0;
+  let lastVUs = 0;
   let ws;
+
+  function scenarioRadios() {
+    return document.querySelectorAll('input[name="scenario"]');
+  }
+
+  /** Native radio group — only one checked; this is what we POST. */
+  function getCheckedScenario() {
+    const el = document.querySelector('input[name="scenario"]:checked');
+    const s = el && el.value ? String(el.value).toLowerCase().trim() : 'http';
+    return ['http', 'bolt', 'weather', 'custom'].includes(s) ? s : 'http';
+  }
+
+  function isBrowser(s) {
+    return s !== 'http';
+  }
+
+  function normalizeUrl(u) {
+    return (u || '').trim().replace(/\/$/, '');
+  }
+
+  function isBoltDefaultUrl() {
+    return normalizeUrl(ui.url.value) === normalizeUrl(BOLT_DEFAULT);
+  }
+
+  function isWeatherPresetUrl() {
+    const u = normalizeUrl(ui.url.value);
+    return (
+      u === normalizeUrl(WEATHER_DEFAULT) ||
+      WEATHER_PRESETS.some((p) => u === normalizeUrl(p))
+    );
+  }
 
   function storedToken() {
     return (sessionStorage.getItem(TOKEN_KEY) || '').trim();
@@ -55,6 +101,20 @@
     return base;
   }
 
+  function fillUrlPresets() {
+    ui.urlPresets.innerHTML = '';
+    const seen = new Set();
+    [BOLT_DEFAULT, WEATHER_DEFAULT, ...WEATHER_PRESETS].forEach((u) => {
+      const v = u.trim();
+      const key = normalizeUrl(v).toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      const opt = document.createElement('option');
+      opt.value = v;
+      ui.urlPresets.appendChild(opt);
+    });
+  }
+
   /* ── WebSocket ── */
   function connect() {
     if (ws) {
@@ -63,8 +123,8 @@
       ws = null;
     }
     ws = new WebSocket(wsUrl());
-    ws.onopen    = () => log('Connected to server.', 'ok');
-    ws.onclose   = () => {
+    ws.onopen = () => log('Connected to server.', 'ok');
+    ws.onclose = () => {
       if (serverAuth.authEnabled && serverAuth.bearer && !storedToken()) {
         log('WebSocket needs an access token — paste it above and click Save.', 'err');
         return;
@@ -83,14 +143,15 @@
 
       case 'started':
         reqs = 0; lastVUs = 0;
-        ui.sVUs.textContent  = '0';
+        ui.sVUs.textContent = '0';
         ui.sReqs.textContent = '0';
         clearConsole();
         {
-          const m = msg.config.mode === 'browser' ? 'browser' : 'http';
-          ui.sReqsLbl.textContent = m === 'browser' ? 'Iterations' : 'Requests';
+          const sc = msg.config.scenario || 'http';
+          ui.sReqsLbl.textContent = isBrowser(sc) ? 'Iterations' : 'Requests';
+          const script = msg.config.script ? `  k6: ${msg.config.script}` : '';
           log(
-            `Test started  mode: ${m}  URL: ${msg.config.url}  VUs: ${msg.config.vus}  Duration: ${msg.config.duration}`,
+            `Test started  scenario: ${sc}${script}  URL: ${msg.config.url}  VUs: ${msg.config.vus}  Duration: ${msg.config.duration}`,
             'ok',
           );
         }
@@ -125,14 +186,12 @@
 
   /* ── k6 output parsing ── */
   function parseStats(text) {
-    // k6 progress lines: "running (1m30.5s), 050/100 VUs, 423 complete and 0 interrupted iterations"
     const vu = text.match(/(\d+)\/\d+ VUs/);
     if (vu) { lastVUs = parseInt(vu[1]); ui.sVUs.textContent = lastVUs; }
 
     const iter = text.match(/(\d+) complete/);
     if (iter) { reqs = parseInt(iter[1]); ui.sReqs.textContent = reqs.toLocaleString(); }
 
-    // k6 final summary: "http_reqs....: 1234"
     const httpReqs = text.match(/http_reqs[\s.]*:\s*(\d+)/);
     if (httpReqs) { reqs = parseInt(httpReqs[1]); ui.sReqs.textContent = reqs.toLocaleString(); }
   }
@@ -187,60 +246,108 @@
   function setRunning(v) {
     running = v;
     ui.start.disabled = v;
-    ui.stop.disabled  = !v;
-    ui.url.disabled   = v;
-    ui.vus.disabled   = v;
-    ui.dur.disabled   = v;
-    ui.modeHttp.disabled = v;
-    ui.modeBrowser.disabled = v;
+    ui.stop.disabled = !v;
+    ui.url.disabled = v;
+    ui.vus.disabled = v;
+    ui.dur.disabled = v;
+    for (const r of scenarioRadios()) {
+      r.disabled = v;
+    }
     ui.pill.classList.toggle('running', v);
     ui.pillText.textContent = v ? 'Running' : 'Idle';
   }
 
   function applyModeUI() {
-    const browser = testMode === 'browser';
-    ui.modeHttp.classList.toggle('active', !browser);
-    ui.modeBrowser.classList.toggle('active', browser);
-    ui.modeHint.textContent = browser
-      ? 'Chromium drives the Bolt app: connection check, single test, load test, and verifies a perplexity-logs API call. Requires k6 with the browser module.'
-      : 'GET requests to a base URL with staged ramp-up.';
-    ui.sReqsLbl.textContent = browser ? 'Iterations' : 'Requests';
-    ui.url.placeholder = browser ? BOLT_DEFAULT : 'https://example.com';
+    for (const r of scenarioRadios()) {
+      r.checked = r.value === scenario;
+    }
+
+    const hints = {};
+    if (ui.modeHint) ui.modeHint.textContent = '';
+
+    if (ui.scriptName) {
+      ui.scriptName.textContent = K6_SCRIPT_LABEL[scenario] || K6_SCRIPT_LABEL.http;
+    }
+
+    ui.sReqsLbl.textContent = isBrowser(scenario) ? 'Iterations' : 'Requests';
+
+    if (scenario === 'http') {
+      ui.url.placeholder = 'https://example.com';
+    } else if (scenario === 'bolt') {
+      ui.url.placeholder = BOLT_DEFAULT;
+    } else if (scenario === 'weather') {
+      ui.url.placeholder = WEATHER_DEFAULT;
+    } else {
+      ui.url.placeholder = 'https://your-app.example.com/';
+    }
   }
 
-  function switchMode(next) {
-    if (running || next === testMode) return;
-    const prev = testMode;
-    testMode = next;
-    if (next === 'browser') {
-      const u = ui.url.value.trim();
-      if (!u || u === 'https://example.com') ui.url.value = BOLT_DEFAULT;
+  function switchScenario(next) {
+    if (running || next === scenario) return;
+    if (next === 'custom' && (!customBrowserEnabled || ui.modeCustomWrap.classList.contains('hidden'))) {
+      return;
+    }
+
+    const prev = scenario;
+    scenario = next;
+
+    const u = ui.url.value.trim();
+    const looksEmpty = !u || u === 'https://example.com';
+
+    if (scenario === 'bolt') {
+      if (looksEmpty || isWeatherPresetUrl()) ui.url.value = BOLT_DEFAULT;
+      if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
+      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
+    } else if (scenario === 'weather') {
+      if (looksEmpty || isBoltDefaultUrl()) ui.url.value = WEATHER_DEFAULT;
+      if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
+      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
+    } else if (scenario === 'custom') {
       if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
       if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
     } else {
-      if (ui.url.value.trim() === BOLT_DEFAULT) ui.url.value = '';
-      if (prev === 'browser' && parseInt(ui.vus.value, 10) === 10) ui.vus.value = '100';
-      if (prev === 'browser' && ui.dur.value === '90s') ui.dur.value = '5m';
+      /* http */
+      if (isBoltDefaultUrl() || isWeatherPresetUrl()) ui.url.value = '';
+      if ((prev === 'bolt' || prev === 'weather' || prev === 'custom') && parseInt(ui.vus.value, 10) === 10) {
+        ui.vus.value = '100';
+      }
+      if ((prev === 'bolt' || prev === 'weather' || prev === 'custom') && ui.dur.value === '90s') {
+        ui.dur.value = '5m';
+      }
     }
+
     applyModeUI();
   }
 
-  ui.modeHttp.onclick = () => switchMode('http');
-  ui.modeBrowser.onclick = () => switchMode('browser');
+  const modeToggleEl = document.querySelector('.mode-toggle');
+  if (modeToggleEl) {
+    modeToggleEl.addEventListener('change', (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement) || t.name !== 'scenario' || !t.checked) return;
+      const next = String(t.value || '').toLowerCase();
+      if (next === scenario) return;
+      switchScenario(next);
+    });
+  }
 
   /* ── actions ── */
   ui.start.onclick = async () => {
+    const runScenario = getCheckedScenario();
+    scenario = runScenario;
+    applyModeUI();
+
     const url = ui.url.value.trim();
     if (!url) { log('Enter a target URL.', 'err'); ui.url.focus(); return; }
     try { new URL(url); } catch { log('Invalid URL format.', 'err'); ui.url.focus(); return; }
 
     ui.start.disabled = true;
-    const defaultVus = testMode === 'browser' ? 10 : 100;
+    const defaultVus = isBrowser(runScenario) ? 10 : 100;
     const body = {
       url,
       vus: parseInt(ui.vus.value, 10) || defaultVus,
       duration: ui.dur.value,
-      mode: testMode === 'browser' ? 'browser' : 'http',
+      scenario: runScenario,
+      mode: isBrowser(runScenario) ? 'browser' : 'http',
     };
     try {
       const res = await fetch('/api/start', {
@@ -291,7 +398,7 @@
   };
 
   async function boot() {
-    applyModeUI();
+    fillUrlPresets();
     try {
       const cfg = await fetch('/api/auth/config').then((r) => r.json());
       serverAuth = {
@@ -299,6 +406,12 @@
         bearer: Boolean(cfg.bearer),
         basic: Boolean(cfg.basic),
       };
+      customBrowserEnabled = Boolean(cfg.customBrowserEnabled);
+      ui.modeCustomWrap.classList.toggle('hidden', !customBrowserEnabled);
+      if (scenario === 'custom' && !customBrowserEnabled) {
+        scenario = 'http';
+      }
+
       if (cfg.authEnabled && cfg.bearer) {
         ui.authBar.classList.remove('hidden');
         ui.accessTok.value = storedToken();
@@ -313,7 +426,9 @@
       }
     } catch (_) {
       ui.authBar.classList.add('hidden');
+      ui.modeCustomWrap.classList.add('hidden');
     }
+    applyModeUI();
     connect();
     fetch('/api/status', { headers: authFetchHeaders(false) })
       .then((r) => {

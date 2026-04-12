@@ -12,9 +12,8 @@
   <!-- HEADER -->
   <header class="header">
     <div class="header-left">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="logo-bolt"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="logo-bolt"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       <span class="header-title">K6 Load Tester</span>
-      <span class="header-sub">HTTP &amp; browser scenarios</span>
     </div>
     <div class="status-pill" id="statusPill">
       <span class="status-dot"></span>
@@ -25,10 +24,9 @@
   <div id="authTokenBar" class="auth-token-bar hidden" aria-live="polite">
     <div class="auth-token-inner">
       <label class="auth-token-label" for="inputAccessToken">Access token</label>
-      <input id="inputAccessToken" type="text" autocomplete="off" spellcheck="false" placeholder="Paste APP_ACCESS_TOKEN from server .env">
+      <input id="inputAccessToken" type="text" autocomplete="off" spellcheck="false" placeholder="Paste APP_ACCESS_TOKEN">
       <button type="button" id="btnSaveToken" class="btn btn-token">Save</button>
     </div>
-    <p class="auth-token-note">Stored for this browser session only.</p>
   </div>
 
   <!-- CONTENT -->
@@ -36,47 +34,79 @@
 
     <!-- LEFT: CONFIG -->
     <aside class="panel config-panel">
-      <h2>Configuration</h2>
 
-      <span class="field-label field-label-first">Test type</span>
-      <div class="mode-toggle" role="group" aria-label="Test type">
-        <button type="button" id="modeHttp" class="mode-btn active" data-mode="http">HTTP load</button>
-        <button type="button" id="modeBrowser" class="mode-btn" data-mode="browser">Browser UI</button>
+      <!-- Scenario pills -->
+      <div class="mode-toggle" role="radiogroup" aria-label="Test scenario">
+        <label class="mode-option">
+          <input type="radio" name="scenario" value="http" class="mode-radio" checked>
+          <span class="mode-btn">HTTP</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="scenario" value="bolt" class="mode-radio">
+          <span class="mode-btn">Bolt</span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="scenario" value="weather" class="mode-radio">
+          <span class="mode-btn">Weather</span>
+        </label>
+        <label class="mode-option hidden" id="modeCustomWrap">
+          <input type="radio" name="scenario" value="custom" class="mode-radio">
+          <span class="mode-btn">Custom</span>
+        </label>
       </div>
-      <p class="mode-hint" id="modeHint">GET requests to a base URL with staged ramp-up.</p>
 
+      <!-- Script badge -->
+      <div class="script-badge" aria-live="polite">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <code id="scriptName">test.js</code>
+      </div>
+
+      <!-- Hint removed -->
+
+      <!-- URL -->
       <label class="field-label" for="inputUrl">Target URL</label>
-      <input id="inputUrl" type="url" placeholder="https://example.com" spellcheck="false" autocomplete="off">
+      <div class="url-row">
+        <input id="inputUrl" type="url" list="urlPresets" placeholder="https://example.com" spellcheck="false" autocomplete="off">
+        <datalist id="urlPresets"></datalist>
+      </div>
 
+      <!-- VUs + Duration -->
       <div class="row-2">
         <div>
-          <label class="field-label" for="inputVUs">Virtual Users</label>
+          <label class="field-label" for="inputVUs">VUs</label>
           <input id="inputVUs" type="number" value="100" min="1" max="50000">
         </div>
         <div>
           <label class="field-label" for="inputDuration">Duration</label>
           <select id="inputDuration">
-            <option value="30s">30 seconds</option>
-            <option value="45s">45 seconds</option>
-            <option value="60s">60 seconds</option>
-            <option value="90s">90 seconds</option>
-            <option value="1m">1 minute</option>
-            <option value="3m">3 minutes</option>
-            <option value="5m" selected>5 minutes</option>
-            <option value="10m">10 minutes</option>
-            <option value="15m">15 minutes</option>
-            <option value="30m">30 minutes</option>
+            <option value="30s">30 s</option>
+            <option value="45s">45 s</option>
+            <option value="60s">60 s</option>
+            <option value="90s">90 s</option>
+            <option value="1m">1 min</option>
+            <option value="3m">3 min</option>
+            <option value="5m" selected>5 min</option>
+            <option value="10m">10 min</option>
+            <option value="15m">15 min</option>
+            <option value="30m">30 min</option>
           </select>
         </div>
       </div>
 
+      <!-- Actions -->
       <div class="btn-row">
-        <button id="btnStart" class="btn btn-start">Start Test</button>
-        <button id="btnStop" class="btn btn-stop" disabled>Stop</button>
+        <button id="btnStart" class="btn btn-start">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run
+        </button>
+        <button id="btnStop" class="btn btn-stop" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          Stop
+        </button>
       </div>
 
-      <!-- STATS -->
-      <div class="stats" id="statsBlock">
+      <!-- Stats -->
+      <div class="stats">
         <div class="stat"><span class="stat-val" id="sVUs">0</span><span class="stat-lbl">VUs</span></div>
         <div class="stat"><span class="stat-val" id="sReqs">0</span><span class="stat-lbl" id="sReqsLbl">Requests</span></div>
         <div class="stat"><span class="stat-val" id="sTime">0s</span><span class="stat-lbl">Elapsed</span></div>
@@ -86,18 +116,18 @@
     <!-- RIGHT: CONSOLE -->
     <section class="panel console-panel">
       <div class="console-top">
-        <h2>Console Output</h2>
-        <button id="btnClear" class="btn-icon" title="Clear console">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <h2>Output</h2>
+        <button id="btnClear" class="btn-icon" title="Clear">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>
       <div class="console" id="console">
-        <p class="console-empty">Console output will appear here when a test starts.</p>
+        <p class="console-empty">Output appears here when a test starts.</p>
       </div>
     </section>
 
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
