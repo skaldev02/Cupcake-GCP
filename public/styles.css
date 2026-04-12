@@ -141,10 +141,17 @@ body {
 
 /* hint removed */
 
+.browser-preset-row.hidden {
+  display: none !important;
+}
+
 /* ── form controls ── */
 .field-label {
   display: block; font-size: .76rem; font-weight: 500;
   color: var(--c-dim); margin-bottom: 5px; margin-top: 12px;
+}
+.field-label-first {
+  margin-top: 10px;
 }
 
 .url-row { position: relative; }

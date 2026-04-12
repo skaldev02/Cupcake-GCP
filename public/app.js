@@ -10,7 +10,7 @@
   ];
   const TOKEN_KEY = 'k6_tester_token';
 
-  /** Must stay in sync with server.js scriptByScenario */
+  /** Shown in badge; API still uses bolt | weather from inferBrowserK6Scenario */
   const K6_SCRIPT_LABEL = {
     http: 'test.js',
     bolt: 'bolt-browser-test.js',
@@ -23,8 +23,9 @@
     accessTok: $('inputAccessToken'),
     saveToken: $('btnSaveToken'),
     modeCustomWrap: $('modeCustomWrap'),
+    browserPresetRow: $('browserPresetRow'),
+    browserPreset: $('browserPreset'),
     scriptName: $('scriptName'),
-    urlPresets: $('urlPresets'),
     url: $('inputUrl'),
     vus: $('inputVUs'),
     dur: $('inputDuration'),
@@ -54,15 +55,36 @@
     return document.querySelectorAll('input[name="scenario"]');
   }
 
-  /** Native radio group — only one checked; this is what we POST. */
+  /** UI mode: http | browser | custom */
   function getCheckedScenario() {
     const el = document.querySelector('input[name="scenario"]:checked');
     const s = el && el.value ? String(el.value).toLowerCase().trim() : 'http';
-    return ['http', 'bolt', 'weather', 'custom'].includes(s) ? s : 'http';
+    return ['http', 'browser', 'custom'].includes(s) ? s : 'http';
   }
 
-  function isBrowser(s) {
-    return s !== 'http';
+  /** k6 /api/start scenario (server contract) */
+  function inferBrowserK6Scenario(urlRaw) {
+    const t = (urlRaw || '').trim();
+    if (!t) return 'weather';
+    try {
+      const host = new URL(t).hostname.toLowerCase();
+      if (host === 'bolt-fifth-testing.netlify.app' || host.includes('bolt-fifth-testing')) {
+        return 'bolt';
+      }
+    } catch {
+      return 'weather';
+    }
+    return 'weather';
+  }
+
+  function scenarioForApi() {
+    const mode = getCheckedScenario();
+    if (mode === 'browser') return inferBrowserK6Scenario(ui.url.value.trim());
+    return mode;
+  }
+
+  function isBrowserUi(s) {
+    return s === 'browser' || s === 'custom';
   }
 
   function normalizeUrl(u) {
@@ -79,6 +101,17 @@
       u === normalizeUrl(WEATHER_DEFAULT) ||
       WEATHER_PRESETS.some((p) => u === normalizeUrl(p))
     );
+  }
+
+  function syncBrowserPresetFromUrl() {
+    if (scenario !== 'browser') return;
+    const u = normalizeUrl(ui.url.value).toLowerCase();
+    let match = '';
+    ui.browserPreset.querySelectorAll('option').forEach((opt) => {
+      if (!opt.value) return;
+      if (normalizeUrl(opt.value).toLowerCase() === u) match = opt.value;
+    });
+    ui.browserPreset.value = match;
   }
 
   function storedToken() {
@@ -99,20 +132,6 @@
     const t = storedToken();
     if (t) base += `?token=${encodeURIComponent(t)}`;
     return base;
-  }
-
-  function fillUrlPresets() {
-    ui.urlPresets.innerHTML = '';
-    const seen = new Set();
-    [BOLT_DEFAULT, WEATHER_DEFAULT, ...WEATHER_PRESETS].forEach((u) => {
-      const v = u.trim();
-      const key = normalizeUrl(v).toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      const opt = document.createElement('option');
-      opt.value = v;
-      ui.urlPresets.appendChild(opt);
-    });
   }
 
   /* ── WebSocket ── */
@@ -148,7 +167,7 @@
         clearConsole();
         {
           const sc = msg.config.scenario || 'http';
-          ui.sReqsLbl.textContent = isBrowser(sc) ? 'Iterations' : 'Requests';
+          ui.sReqsLbl.textContent = sc !== 'http' ? 'Iterations' : 'Requests';
           const script = msg.config.script ? `  k6: ${msg.config.script}` : '';
           log(
             `Test started  scenario: ${sc}${script}  URL: ${msg.config.url}  VUs: ${msg.config.vus}  Duration: ${msg.config.duration}`,
@@ -184,7 +203,6 @@
     }
   }
 
-  /* ── k6 output parsing ── */
   function parseStats(text) {
     const vu = text.match(/(\d+)\/\d+ VUs/);
     if (vu) { lastVUs = parseInt(vu[1]); ui.sVUs.textContent = lastVUs; }
@@ -196,7 +214,6 @@
     if (httpReqs) { reqs = parseInt(httpReqs[1]); ui.sReqs.textContent = reqs.toLocaleString(); }
   }
 
-  /* ── elapsed timer ── */
   function startTicker() {
     stopTicker();
     ticker = setInterval(() => {
@@ -211,7 +228,6 @@
     return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
   }
 
-  /* ── console helpers ── */
   function clearConsole() {
     ui.con.innerHTML = '';
   }
@@ -242,7 +258,6 @@
 
   function esc(t) { const d = document.createElement('span'); d.textContent = t; return d.innerHTML; }
 
-  /* ── state ── */
   function setRunning(v) {
     running = v;
     ui.start.disabled = v;
@@ -250,6 +265,7 @@
     ui.url.disabled = v;
     ui.vus.disabled = v;
     ui.dur.disabled = v;
+    ui.browserPreset.disabled = v;
     for (const r of scenarioRadios()) {
       r.disabled = v;
     }
@@ -262,23 +278,27 @@
       r.checked = r.value === scenario;
     }
 
-    const hints = {};
-    if (ui.modeHint) ui.modeHint.textContent = '';
+    ui.browserPresetRow.classList.toggle('hidden', scenario !== 'browser');
 
     if (ui.scriptName) {
-      ui.scriptName.textContent = K6_SCRIPT_LABEL[scenario] || K6_SCRIPT_LABEL.http;
+      if (scenario === 'http') {
+        ui.scriptName.textContent = K6_SCRIPT_LABEL.http;
+      } else if (scenario === 'browser') {
+        const k = inferBrowserK6Scenario(ui.url.value.trim());
+        ui.scriptName.textContent = K6_SCRIPT_LABEL[k] || K6_SCRIPT_LABEL.weather;
+      } else {
+        ui.scriptName.textContent = K6_SCRIPT_LABEL.custom;
+      }
     }
 
-    ui.sReqsLbl.textContent = isBrowser(scenario) ? 'Iterations' : 'Requests';
+    ui.sReqsLbl.textContent = isBrowserUi(scenario) ? 'Iterations' : 'Requests';
 
     if (scenario === 'http') {
       ui.url.placeholder = 'https://example.com';
-    } else if (scenario === 'bolt') {
-      ui.url.placeholder = BOLT_DEFAULT;
-    } else if (scenario === 'weather') {
-      ui.url.placeholder = WEATHER_DEFAULT;
+    } else if (scenario === 'browser') {
+      ui.url.placeholder = 'https://…';
     } else {
-      ui.url.placeholder = 'https://your-app.example.com/';
+      ui.url.placeholder = 'https://…';
     }
   }
 
@@ -294,24 +314,24 @@
     const u = ui.url.value.trim();
     const looksEmpty = !u || u === 'https://example.com';
 
-    if (scenario === 'bolt') {
-      if (looksEmpty || isWeatherPresetUrl()) ui.url.value = BOLT_DEFAULT;
-      if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
-      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
-    } else if (scenario === 'weather') {
-      if (looksEmpty || isBoltDefaultUrl()) ui.url.value = WEATHER_DEFAULT;
+    if (scenario === 'browser') {
+      if (looksEmpty) {
+        ui.browserPreset.value = WEATHER_DEFAULT;
+        ui.url.value = WEATHER_DEFAULT;
+      } else {
+        syncBrowserPresetFromUrl();
+      }
       if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
       if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
     } else if (scenario === 'custom') {
       if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
       if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
     } else {
-      /* http */
       if (isBoltDefaultUrl() || isWeatherPresetUrl()) ui.url.value = '';
-      if ((prev === 'bolt' || prev === 'weather' || prev === 'custom') && parseInt(ui.vus.value, 10) === 10) {
+      if ((prev === 'browser' || prev === 'custom') && parseInt(ui.vus.value, 10) === 10) {
         ui.vus.value = '100';
       }
-      if ((prev === 'bolt' || prev === 'weather' || prev === 'custom') && ui.dur.value === '90s') {
+      if ((prev === 'browser' || prev === 'custom') && ui.dur.value === '90s') {
         ui.dur.value = '5m';
       }
     }
@@ -330,24 +350,39 @@
     });
   }
 
-  /* ── actions ── */
+  ui.browserPreset.addEventListener('change', () => {
+    if (scenario !== 'browser' || running) return;
+    const v = ui.browserPreset.value.trim();
+    if (v) ui.url.value = v;
+    applyModeUI();
+  });
+
+  ui.url.addEventListener('input', () => {
+    if (scenario === 'browser' && !running) {
+      syncBrowserPresetFromUrl();
+      applyModeUI();
+    }
+  });
+
   ui.start.onclick = async () => {
-    const runScenario = getCheckedScenario();
-    scenario = runScenario;
+    const uiMode = getCheckedScenario();
+    scenario = uiMode;
     applyModeUI();
 
     const url = ui.url.value.trim();
-    if (!url) { log('Enter a target URL.', 'err'); ui.url.focus(); return; }
+    if (!url) { log('Enter a URL.', 'err'); ui.url.focus(); return; }
     try { new URL(url); } catch { log('Invalid URL format.', 'err'); ui.url.focus(); return; }
 
+    const apiScenario = scenarioForApi();
+
     ui.start.disabled = true;
-    const defaultVus = isBrowser(runScenario) ? 10 : 100;
+    const defaultVus = apiScenario !== 'http' ? 10 : 100;
     const body = {
       url,
       vus: parseInt(ui.vus.value, 10) || defaultVus,
       duration: ui.dur.value,
-      scenario: runScenario,
-      mode: isBrowser(runScenario) ? 'browser' : 'http',
+      scenario: apiScenario,
+      mode: apiScenario !== 'http' ? 'browser' : 'http',
     };
     try {
       const res = await fetch('/api/start', {
@@ -398,7 +433,6 @@
   };
 
   async function boot() {
-    fillUrlPresets();
     try {
       const cfg = await fetch('/api/auth/config').then((r) => r.json());
       serverAuth = {

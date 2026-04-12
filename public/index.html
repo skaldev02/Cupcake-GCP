@@ -42,12 +42,8 @@
           <span class="mode-btn">HTTP</span>
         </label>
         <label class="mode-option">
-          <input type="radio" name="scenario" value="bolt" class="mode-radio">
-          <span class="mode-btn">Bolt</span>
-        </label>
-        <label class="mode-option">
-          <input type="radio" name="scenario" value="weather" class="mode-radio">
-          <span class="mode-btn">Weather</span>
+          <input type="radio" name="scenario" value="browser" class="mode-radio">
+          <span class="mode-btn">Browser</span>
         </label>
         <label class="mode-option hidden" id="modeCustomWrap">
           <input type="radio" name="scenario" value="custom" class="mode-radio">
@@ -61,13 +57,21 @@
         <code id="scriptName">test.js</code>
       </div>
 
-      <!-- Hint removed -->
+      <div id="browserPresetRow" class="browser-preset-row hidden">
+        <label class="field-label field-label-first" for="browserPreset">Site</label>
+        <select id="browserPreset" aria-label="Preset test site">
+          <option value="">Custom URL (type below)</option>
+          <option value="https://bolt-fifth-testing.netlify.app/">Bolt · Fifth (Netlify)</option>
+          <option value="https://bolt-sixth-testing.netlify.app/">Weather · Sixth (Netlify)</option>
+          <option value="https://weather-app-us-28149829298.us-central1.run.app">Weather · US (Cloud Run)</option>
+          <option value="https://weather-app-ca-28149829298.northamerica-northeast2.run.app">Weather · CA (Cloud Run)</option>
+        </select>
+      </div>
 
       <!-- URL -->
-      <label class="field-label" for="inputUrl">Target URL</label>
+      <label class="field-label" for="inputUrl">URL</label>
       <div class="url-row">
-        <input id="inputUrl" type="url" list="urlPresets" placeholder="https://example.com" spellcheck="false" autocomplete="off">
-        <datalist id="urlPresets"></datalist>
+        <input id="inputUrl" type="url" placeholder="https://example.com" spellcheck="false" autocomplete="off">
       </div>
 
       <!-- VUs + Duration -->
@@ -128,6 +132,6 @@
 
   </div>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
