@@ -110,4 +110,4 @@ export function handleSummary(data) {
       '',
     ].join('\n'),
   };
-}
+};
