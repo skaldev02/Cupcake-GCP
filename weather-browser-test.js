@@ -122,7 +122,7 @@ export default async function () {
 
     await weatherBtn.waitFor({ state: 'visible', timeout: 10000 });
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 100; i++) {
       await weatherBtn.click();
       sleep(2);
     }
