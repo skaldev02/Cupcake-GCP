@@ -183,7 +183,7 @@ app.get('/api/status', requireApiAuth, (_req, res) => {
 app.post('/api/start', requireApiAuth, (req, res) => {
   if (activeTest) return res.status(409).json({ error: 'A test is already running.' });
 
-  const { url, vus, duration, mode, scenario } = req.body;
+  const { url, vus, duration, mode, scenario, browserExecutor, browserRampUp } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required.' });
 
   let resolvedScenario = typeof scenario === 'string' ? scenario.trim().toLowerCase() : '';
@@ -265,12 +265,23 @@ app.post('/api/start', requireApiAuth, (req, res) => {
     envForK6.K6_BROWSER_HEADLESS = 'true';
   }
 
+  const browserExec =
+    typeof browserExecutor === 'string' && browserExecutor.trim()
+      ? browserExecutor.trim().toLowerCase()
+      : '';
+  const browserRamp =
+    typeof browserRampUp === 'string' && browserRampUp.trim() ? browserRampUp.trim() : '';
+
   const k6Args = browserMode
     ? [
         'run',
         '-e', `APP_URL=${url}`,
         '-e', `BROWSER_VUS=${vuCount}`,
         '-e', `BROWSER_DURATION=${dur}`,
+        ...(browserExec === 'constant' || browserExec === 'ramping'
+          ? ['-e', `BROWSER_EXECUTOR=${browserExec}`]
+          : []),
+        ...(browserRamp ? ['-e', `BROWSER_RAMP_UP=${browserRamp}`] : []),
         scriptFile,
       ]
     : [
