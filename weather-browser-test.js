@@ -16,6 +16,10 @@ import { check, sleep } from 'k6';
  *   BROWSER_DURATION   total scenario time   (e.g. 90s)
  *   BROWSER_VUS        peak / target VUs
  *
+ * Each iteration clicks “Get random city weather” exactly 100 times (2 s pause
+ * after each click). Raise BROWSER_DURATION / server duration so the scenario
+ * can outlive one iteration.
+ *
  * Example:
  *   k6 run -e APP_URL=https://bolt-sixth-testing.netlify.app/ weather-browser-test.js
  */
@@ -25,6 +29,10 @@ const BROWSER_VUS = parseInt(__ENV.BROWSER_VUS || '10', 10);
 const BROWSER_DURATION = __ENV.BROWSER_DURATION || '90s';
 const BROWSER_EXECUTOR = String(__ENV.BROWSER_EXECUTOR || 'ramping').toLowerCase().trim();
 const BROWSER_RAMP_UP = (__ENV.BROWSER_RAMP_UP || '').trim();
+
+/** Fixed load: 100 UI clicks per VU iteration. */
+const WEATHER_BUTTON_CLICKS = 100;
+const WEATHER_CLICK_PAUSE_SEC = 2;
 
 function parseK6DurationSeconds(s) {
   const m = String(s || '').match(/^(\d+)(s|m|h)$/i);
@@ -122,9 +130,9 @@ export default async function () {
 
     await weatherBtn.waitFor({ state: 'visible', timeout: 10000 });
 
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < WEATHER_BUTTON_CLICKS; i++) {
       await weatherBtn.click();
-      sleep(2);
+      sleep(WEATHER_CLICK_PAUSE_SEC);
     }
 
     const start = Date.now();

@@ -264,6 +264,11 @@ app.post('/api/start', requireApiAuth, (req, res) => {
   if (browserMode && envForK6.K6_BROWSER_HEADLESS === undefined) {
     envForK6.K6_BROWSER_HEADLESS = 'true';
   }
+  // Headless Chromium on many Linux VPS / containers exits unless sandbox is disabled.
+  // Override on the host with K6_BROWSER_ARGS if you need different flags.
+  if (browserMode && envForK6.K6_BROWSER_ARGS === undefined) {
+    envForK6.K6_BROWSER_ARGS = '--no-sandbox,--disable-dev-shm-usage';
+  }
 
   const browserExec =
     typeof browserExecutor === 'string' && browserExecutor.trim()
