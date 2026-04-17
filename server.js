@@ -35,6 +35,41 @@ function findK6() {
 const K6_BIN = findK6();
 console.log(`k6 binary: ${K6_BIN}`);
 
+/** Upper bound for UI and API (k6 accepts s/m/h). */
+const MAX_TEST_DURATION_SEC = 24 * 3600;
+const MIN_BROWSER_DURATION_SEC = 90;
+
+function parseDurationToSeconds(raw) {
+  if (raw == null) return null;
+  const m = String(raw).trim().match(/^(\d+(?:\.\d+)?)(s|m|h)$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const u = m[2].toLowerCase();
+  if (u === 'h') return Math.round(n * 3600);
+  if (u === 'm') return Math.round(n * 60);
+  return Math.round(n);
+}
+
+function formatK6Duration(seconds) {
+  let s = Math.round(Number(seconds));
+  if (!Number.isFinite(s)) s = MIN_BROWSER_DURATION_SEC;
+  s = Math.max(1, Math.min(MAX_TEST_DURATION_SEC, s));
+  if (s % 3600 === 0) return `${s / 3600}h`;
+  if (s % 60 === 0) return `${s / 60}m`;
+  return `${s}s`;
+}
+
+/** Normalize any k6-style duration; clamp to max 24 h; browser runs ≥ 90 s. */
+function sanitizeK6Duration(rawDur, browserMode) {
+  const parsed = parseDurationToSeconds(rawDur);
+  let sec =
+    parsed != null ? parsed : browserMode ? MIN_BROWSER_DURATION_SEC : 300;
+  sec = Math.min(sec, MAX_TEST_DURATION_SEC);
+  if (browserMode && sec < MIN_BROWSER_DURATION_SEC) sec = MIN_BROWSER_DURATION_SEC;
+  return formatK6Duration(sec);
+}
+
 let activeTest = null;
 
 function broadcast(data) {
@@ -183,7 +218,16 @@ app.get('/api/status', requireApiAuth, (_req, res) => {
 app.post('/api/start', requireApiAuth, (req, res) => {
   if (activeTest) return res.status(409).json({ error: 'A test is already running.' });
 
-  const { url, vus, duration, mode, scenario, browserExecutor, browserRampUp } = req.body;
+  const {
+    url,
+    vus,
+    duration,
+    durationHours,
+    mode,
+    scenario,
+    browserExecutor,
+    browserRampUp,
+  } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required.' });
 
   let resolvedScenario = typeof scenario === 'string' ? scenario.trim().toLowerCase() : '';
@@ -213,15 +257,17 @@ app.post('/api/start', requireApiAuth, (req, res) => {
     }
   }
 
-  // Enforce a minimum 90 s for browser scenarios so VUs can finish one iteration.
-  const rawDur = duration || (browserMode ? '90s' : '5m');
-  const dur = (() => {
-    if (!browserMode) return rawDur;
-    const m = rawDur.match(/^(\d+)(s|m|h)$/);
-    if (!m) return '90s';
-    const secs = m[2] === 'h' ? +m[1] * 3600 : m[2] === 'm' ? +m[1] * 60 : +m[1];
-    return secs < 90 ? '90s' : rawDur;
-  })();
+  // Optional API: plain hours number (e.g. 3 or 1.5) → normalized k6 duration.
+  let rawDur = duration || (browserMode ? '90s' : '5m');
+  const hoursRaw = durationHours;
+  if (hoursRaw != null && String(hoursRaw).trim() !== '') {
+    const h = parseFloat(String(hoursRaw).replace(',', '.'));
+    if (Number.isFinite(h) && h > 0) {
+      const clampedH = Math.min(24, Math.max(0.25, h));
+      rawDur = `${clampedH}h`;
+    }
+  }
+  const dur = sanitizeK6Duration(rawDur, browserMode);
 
   const scriptByScenario = {
     http: 'test.js',

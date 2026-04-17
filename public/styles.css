@@ -175,6 +175,36 @@ select { cursor: pointer; appearance: none;
 
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+.duration-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.duration-custom-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.duration-custom-wrap.hidden { display: none !important; }
+.duration-custom-wrap input[type="number"] {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  max-width: 120px;
+}
+.duration-hours-suffix {
+  font-size: .82rem;
+  color: var(--c-dim);
+  flex-shrink: 0;
+}
+.duration-hint {
+  font-size: .72rem;
+  color: var(--c-dim);
+  line-height: 1.35;
+  margin: 0;
+}
+.duration-hint.hidden { display: none !important; }
+
 /* ── buttons ── */
 .btn-row { display: flex; gap: 8px; margin-top: 14px; }
 .btn {

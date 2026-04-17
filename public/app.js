@@ -29,6 +29,9 @@
     url: $('inputUrl'),
     vus: $('inputVUs'),
     dur: $('inputDuration'),
+    durHours: $('inputDurationHours'),
+    durationCustomWrap: $('durationCustomWrap'),
+    durationCustomHint: $('durationCustomHint'),
     start: $('btnStart'),
     stop: $('btnStop'),
     clear: $('btnClear'),
@@ -258,6 +261,27 @@
 
   function esc(t) { const d = document.createElement('span'); d.textContent = t; return d.innerHTML; }
 
+  function syncDurationCustomUI() {
+    const custom = ui.dur.value === 'custom';
+    ui.durationCustomWrap.classList.toggle('hidden', !custom);
+    ui.durationCustomHint.classList.toggle('hidden', !custom);
+  }
+
+  /**
+   * Value sent to /api/start as k6 duration (s/m/h). Custom uses hours (0.25–24).
+   */
+  function effectiveDuration() {
+    if (ui.dur.value !== 'custom') return ui.dur.value;
+    const raw = String(ui.durHours.value || '').trim().replace(',', '.');
+    let h = parseFloat(raw);
+    if (!Number.isFinite(h) || h <= 0) h = 1;
+    h = Math.min(24, Math.max(0.25, h));
+    const ri = Math.round(h);
+    if (Math.abs(h - ri) < 1e-6 && ri >= 1 && ri <= 24) return `${ri}h`;
+    const secs = Math.round(h * 3600);
+    return `${secs}s`;
+  }
+
   function setRunning(v) {
     running = v;
     ui.start.disabled = v;
@@ -265,6 +289,7 @@
     ui.url.disabled = v;
     ui.vus.disabled = v;
     ui.dur.disabled = v;
+    if (ui.durHours) ui.durHours.disabled = v;
     ui.browserPreset.disabled = v;
     for (const r of scenarioRadios()) {
       r.disabled = v;
@@ -322,20 +347,22 @@
         syncBrowserPresetFromUrl();
       }
       if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
-      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
+      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '1h';
     } else if (scenario === 'custom') {
       if (prev === 'http' && parseInt(ui.vus.value, 10) === 100) ui.vus.value = '10';
-      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '90s';
+      if (prev === 'http' && ui.dur.value === '5m') ui.dur.value = '1h';
     } else {
       if (isBoltDefaultUrl() || isWeatherPresetUrl()) ui.url.value = '';
       if ((prev === 'browser' || prev === 'custom') && parseInt(ui.vus.value, 10) === 10) {
         ui.vus.value = '100';
       }
-      if ((prev === 'browser' || prev === 'custom') && ui.dur.value === '90s') {
+      const longBrowserDurations = new Set(['90s', '1h', '2h', '6h', '24h', 'custom']);
+      if ((prev === 'browser' || prev === 'custom') && longBrowserDurations.has(ui.dur.value)) {
         ui.dur.value = '5m';
       }
     }
 
+    syncDurationCustomUI();
     applyModeUI();
   }
 
@@ -357,6 +384,9 @@
     applyModeUI();
   });
 
+  ui.dur.addEventListener('change', syncDurationCustomUI);
+  syncDurationCustomUI();
+
   ui.url.addEventListener('input', () => {
     if (scenario === 'browser' && !running) {
       syncBrowserPresetFromUrl();
@@ -373,6 +403,17 @@
     if (!url) { log('Enter a URL.', 'err'); ui.url.focus(); return; }
     try { new URL(url); } catch { log('Invalid URL format.', 'err'); ui.url.focus(); return; }
 
+    if (ui.dur.value === 'custom') {
+      const rawH = String(ui.durHours.value || '').trim().replace(',', '.');
+      const h = parseFloat(rawH);
+      if (!Number.isFinite(h) || h < 0.25 || h > 24) {
+        log('Custom duration: enter hours between 0.25 and 24.', 'err');
+        ui.durHours.focus();
+        ui.start.disabled = false;
+        return;
+      }
+    }
+
     const apiScenario = scenarioForApi();
 
     ui.start.disabled = true;
@@ -380,7 +421,7 @@
     const body = {
       url,
       vus: parseInt(ui.vus.value, 10) || defaultVus,
-      duration: ui.dur.value,
+      duration: effectiveDuration(),
       scenario: apiScenario,
       mode: apiScenario !== 'http' ? 'browser' : 'http',
     };
@@ -463,6 +504,7 @@
       ui.modeCustomWrap.classList.add('hidden');
     }
     applyModeUI();
+    syncDurationCustomUI();
     connect();
     fetch('/api/status', { headers: authFetchHeaders(false) })
       .then((r) => {
