@@ -21,10 +21,11 @@ import { check, sleep } from 'k6';
  * can outlive one iteration.
  *
  * Example:
- *   k6 run -e APP_URL=https://bolt-sixth-testing.netlify.app/ weather-browser-test.js
+ *   k6 run -e APP_URL=https://kimberly-fossillike-harmoniously.ngrok-free.dev/ weather-browser-test.js
  */
 
-const APP_URL = __ENV.APP_URL || 'https://bolt-sixth-testing.netlify.app/';
+const APP_URL =
+  __ENV.APP_URL || 'https://kimberly-fossillike-harmoniously.ngrok-free.dev/';
 const BROWSER_VUS = parseInt(__ENV.BROWSER_VUS || '10', 10);
 const BROWSER_DURATION = __ENV.BROWSER_DURATION || '90s';
 const BROWSER_EXECUTOR = String(__ENV.BROWSER_EXECUTOR || 'ramping').toLowerCase().trim();
