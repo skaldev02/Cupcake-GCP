@@ -5,6 +5,7 @@
   const WEATHER_DEFAULT = 'https://kimberly-fossillike-harmoniously.ngrok-free.dev/';
   const WEATHER_PRESETS = [
     'https://kimberly-fossillike-harmoniously.ngrok-free.dev/',
+    'https://bolt-sixth-testing.netlify.app/',
     'https://weather-app-us-28149829298.us-central1.run.app',
     'https://weather-app-ca-28149829298.northamerica-northeast2.run.app',
   ];

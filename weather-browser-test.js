@@ -22,6 +22,7 @@ import { check, sleep } from 'k6';
  *
  * Example:
  *   k6 run -e APP_URL=https://kimberly-fossillike-harmoniously.ngrok-free.dev/ weather-browser-test.js
+ *   k6 run -e APP_URL=https://bolt-sixth-testing.netlify.app/ weather-browser-test.js
  */
 
 const APP_URL =
